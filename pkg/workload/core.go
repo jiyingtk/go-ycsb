@@ -76,8 +76,28 @@ type core struct {
 	zeroPadding                  int64
 	insertionRetryLimit          int64
 	insertionRetryInterval       int64
+	fieldLength                  int64
+	maxScanLength                int64
+	curValueSize                 int64
 
 	valuePool sync.Pool
+
+	runMixGraphBench  bool
+	queryChooser      ycsb.Generator
+	genExp            *generator.TwoTermExpKeys
+	usePrefixModeling bool
+	useRandomModeling bool
+	keyDistA          float64
+	keyDistB          float64
+	valueTheta        float64
+	valueK            float64
+	valueSigma        float64
+	iterTheta         float64
+	iterK             float64
+	iterSigma         float64
+	keyRangeFreqs     []int
+	keyRangeVSize     []int
+	keyRangeSize      int
 }
 
 func getFieldLengthGenerator(p *properties.Properties) ycsb.Generator {
@@ -95,6 +115,8 @@ func getFieldLengthGenerator(p *properties.Properties) ycsb.Generator {
 		fieldLengthGenerator = generator.NewZipfianWithRange(1, fieldLength, generator.ZipfianConstant)
 	case "histogram":
 		fieldLengthGenerator = generator.NewHistogramFromFile(fieldLengthHistogram)
+	case "pareto":
+		fieldLengthGenerator = generator.NewPareto(fieldLength, generator.ParetoTheta, generator.ParetoK, generator.ParetoSigma)
 	default:
 		util.Fatalf("unknown field length distribution %s", fieldLengthDistribution)
 	}
@@ -152,6 +174,18 @@ func (c *core) CleanupThread(_ context.Context) {
 
 // Close implements the Workload Close interface.
 func (c *core) Close() error {
+	// sort.Ints(c.keyRangeFreqs)
+	// freqSum := 0
+	// vsizeSum := 0
+	// for i, freq := range c.keyRangeFreqs {
+	// 	freqSum += freq
+	// 	vsizeSum += c.keyRangeVSize[i]
+	// }
+	// for i, freq := range c.keyRangeFreqs {
+	// 	if freq > 0 {
+	// 		fmt.Println(freq, ", ratio ", float64(freq)/float64(freqSum), ", vs ", c.keyRangeVSize[i], ", ratio ", float64(c.keyRangeVSize[i])/float64(vsizeSum), "; rate ", float64(c.keyRangeVSize[i])/float64(freq))
+	// 	}
+	// }
 	return nil
 }
 
@@ -216,7 +250,11 @@ func (c *core) putValues(values map[string][]byte) {
 func (c *core) buildRandomValue(state *coreState) []byte {
 	// TODO: use pool for the buffer
 	r := state.r
-	buf := c.getValueBuffer(int(c.fieldLengthGenerator.Next(r)))
+	size := c.fieldLengthGenerator.Next(r)
+	if c.runMixGraphBench {
+		size = c.curValueSize
+	}
+	buf := c.getValueBuffer(int(size))
 	util.RandBytes(r, buf)
 	return buf
 }
@@ -225,6 +263,9 @@ func (c *core) buildDeterministicValue(state *coreState, key string, fieldKey st
 	// TODO: use pool for the buffer
 	r := state.r
 	size := c.fieldLengthGenerator.Next(r)
+	if c.runMixGraphBench {
+		size = c.curValueSize
+	}
 	buf := c.getValueBuffer(int(size + 21))
 	b := bytes.NewBuffer(buf[0:0])
 	b.WriteString(key)
@@ -350,8 +391,151 @@ func (c *core) DoBatchInsert(ctx context.Context, batchSize int, db ycsb.DB) err
 	return err
 }
 
+func (c *core) InitMixGraphBench() {
+	c.runMixGraphBench = c.p.GetBool(prop.MixGraphBench, prop.MixGraphBenchDefault)
+
+	ratio := []float64{
+		c.p.GetFloat64(prop.MixGetRatio, prop.MixGetRatioDefault),
+		c.p.GetFloat64(prop.MixPutRatio, prop.MixPutRatioDefault),
+		c.p.GetFloat64(prop.MixSeekRatio, prop.MixSeekRatioDefault),
+	}
+
+	queryChooser := generator.NewDiscrete()
+	for i, r := range ratio {
+		queryChooser.Add(r, int64(i))
+	}
+	c.queryChooser = queryChooser
+
+	keyRangeNum := c.p.GetInt64(prop.KeyRangeNum, prop.KeyRangeNumDefault)
+	keyRangeDistA := c.p.GetFloat64(prop.KeyRangeDistA, prop.KeyRangeDistADefault)
+	keyRangeDistB := c.p.GetFloat64(prop.KeyRangeDistB, prop.KeyRangeDistBDefault)
+	keyRangeDistC := c.p.GetFloat64(prop.KeyRangeDistC, prop.KeyRangeDistCDefault)
+	keyRangeDistD := c.p.GetFloat64(prop.KeyRangeDistD, prop.KeyRangeDistDDefault)
+	if keyRangeDistA != 0.0 || keyRangeDistB != 0.0 || keyRangeDistC != 0.0 || keyRangeDistD != 0.0 {
+		c.usePrefixModeling = true
+		c.genExp = generator.NewTwoTermExpKeys(c.recordCount, keyRangeNum, keyRangeDistA, keyRangeDistB, keyRangeDistC, keyRangeDistD)
+	}
+	c.keyRangeFreqs = make([]int, keyRangeNum*10+1)
+	c.keyRangeVSize = make([]int, keyRangeNum*10+1)
+	c.keyRangeSize = int(c.recordCount / keyRangeNum / 10)
+
+	c.keyDistA = c.p.GetFloat64(prop.KeyDistA, prop.KeyDistADefault)
+	c.keyDistB = c.p.GetFloat64(prop.KeyDistB, prop.KeyDistBDefault)
+	if c.keyDistA == 0 || c.keyDistB == 0 {
+		c.useRandomModeling = true
+	}
+	fmt.Println("usePrefixModeling ", c.usePrefixModeling, ", useRandomModeling ", c.useRandomModeling)
+	c.valueTheta = c.p.GetFloat64(prop.ValueTheta, prop.ValueThetaDefault)
+	c.valueK = c.p.GetFloat64(prop.ValueK, prop.ValueKDefault)
+	c.valueSigma = c.p.GetFloat64(prop.ValueSigma, prop.ValueSigmaDefault)
+	c.iterTheta = c.p.GetFloat64(prop.IterTheta, prop.IterThetaDefault)
+	c.iterK = c.p.GetFloat64(prop.IterK, prop.IterKDefault)
+	c.iterSigma = c.p.GetFloat64(prop.IterSigma, prop.IterSigmaDefault)
+}
+
+// PowerCdfInversion is the inverse function of power distribution (y=ax^b)
+func PowerCdfInversion(u float64, a float64, b float64) int64 {
+	ret := math.Pow((u / a), (1 / b))
+	return int64(math.Ceil(ret))
+}
+
+// ParetoCdfInversion is the inverse function of Pareto distribution
+func ParetoCdfInversion(u float64, theta float64, k float64, sigma float64) int64 {
+	val := 0.0
+	if k == 0.0 {
+		val = theta - sigma*math.Log(u)
+	} else {
+		val = theta + sigma*(math.Pow(u, -1*k)-1)/k
+	}
+	return int64(math.Ceil(val))
+}
+
+func (c *core) MixGraphBench(ctx context.Context, db ycsb.DB) error {
+	var initRand, randV, keyRand, keySeed int64
+
+	state := ctx.Value(stateKey).(*coreState)
+	r := state.r
+
+	initRand = r.Int63() % c.recordCount
+	randV = initRand % c.recordCount
+	u := float64(randV) / float64(c.recordCount)
+
+	if c.useRandomModeling {
+		keyRand = initRand
+	} else if c.usePrefixModeling {
+		keyRand = c.genExp.DistGetKeyID(initRand, c.keyDistA, c.keyDistB)
+	} else {
+		keySeed = PowerCdfInversion(u, c.keyDistA, c.keyDistB)
+		// randK := rand.New(rand.NewSource(keySeed))
+		// keyRand = randK.Int63n(c.recordCount)
+		keyRand = util.Hash64(keySeed) % c.recordCount
+	}
+	keyName := c.buildKeyName(keyRand)
+	queryType := c.queryChooser.Next(r) //or generated by randV
+
+	// c.keyRangeFreqs[int(keyRand)/c.keyRangeSize]++
+
+	if queryType == 0 {
+		var fields []string
+		if !c.readAllFields {
+			fieldName := state.fieldNames[c.fieldChooser.Next(r)]
+			fields = append(fields, fieldName)
+		} else {
+			fields = state.fieldNames
+		}
+
+		values, err := db.Read(ctx, c.table, keyName, fields)
+		if err != nil {
+			return err
+		}
+
+		if c.dataIntegrity {
+			c.verifyRow(state, keyName, values)
+		}
+		return nil
+	} else if queryType == 1 {
+		c.curValueSize = ParetoCdfInversion(u, c.valueTheta, c.valueK, c.valueSigma)
+		if c.curValueSize <= 0 {
+			c.curValueSize = 10
+		} else if c.curValueSize > c.fieldLength {
+			c.curValueSize = c.curValueSize % c.fieldLength
+		}
+
+		// c.keyRangeVSize[int(keyRand)/c.keyRangeSize] += int(c.curValueSize)
+
+		var values map[string][]byte
+		if c.writeAllFields {
+			values = c.buildValues(state, keyName)
+		} else {
+			values = c.buildSingleValue(state, keyName)
+		}
+
+		defer c.putValues(values)
+
+		return db.Insert(ctx, c.table, keyName, values)
+	} else {
+		scanLen := ParetoCdfInversion(u, c.iterTheta, c.iterK, c.iterSigma) % c.maxScanLength
+
+		var fields []string
+		if !c.readAllFields {
+			fieldName := state.fieldNames[c.fieldChooser.Next(r)]
+			fields = append(fields, fieldName)
+		} else {
+			fields = state.fieldNames
+		}
+
+		_, err := db.Scan(ctx, c.table, keyName, int(scanLen), fields)
+
+		return err
+	}
+}
+
 // DoTransaction implements the Workload DoTransaction interface.
 func (c *core) DoTransaction(ctx context.Context, db ycsb.DB) error {
+	if c.runMixGraphBench {
+		return c.MixGraphBench(ctx, db)
+	}
+
 	state := ctx.Value(stateKey).(*coreState)
 	r := state.r
 
@@ -613,6 +797,7 @@ func (coreCreator) Create(p *properties.Properties) (ycsb.Workload, error) {
 		c.fieldNames[i] = fmt.Sprintf("field%d", i)
 	}
 	c.fieldLengthGenerator = getFieldLengthGenerator(p)
+	c.fieldLength = p.GetInt64(prop.FieldLength, prop.FieldLengthDefault)
 	c.recordCount = p.GetInt64(prop.RecordCount, prop.RecordCountDefault)
 	if c.recordCount == 0 {
 		c.recordCount = int64(math.MaxInt32)
@@ -621,6 +806,7 @@ func (coreCreator) Create(p *properties.Properties) (ycsb.Workload, error) {
 	requestDistrib := p.GetString(prop.RequestDistribution, prop.RequestDistributionDefault)
 	maxScanLength := p.GetInt64(prop.MaxScanLength, prop.MaxScanLengthDefault)
 	scanLengthDistrib := p.GetString(prop.ScanLengthDistribution, prop.ScanLengthDistributionDefault)
+	c.maxScanLength = maxScanLength
 
 	insertStart := p.GetInt64(prop.InsertStart, prop.InsertStartDefault)
 	insertCount := p.GetInt64(prop.InsertCount, c.recordCount-insertStart)
@@ -690,6 +876,8 @@ func (coreCreator) Create(p *properties.Properties) (ycsb.Workload, error) {
 			return make([]byte, fieldLength)
 		},
 	}
+
+	c.InitMixGraphBench()
 
 	return c, nil
 }
