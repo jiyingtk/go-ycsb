@@ -436,8 +436,8 @@ func (c *core) InitMixGraphBench() {
 	c.queryChooser = queryChooser
 
 	c.tableNum = c.p.GetInt64(prop.TableNum, prop.TableNumDefault)
-	requestDistrib := c.p.GetString(prop.RequestDistribution, prop.RequestDistributionDefault)
-	switch requestDistrib {
+	tableDistrib := c.p.GetString("tabledistribution", "uniform")
+	switch tableDistrib {
 	case "uniform":
 		c.tableChooser = generator.NewUniform(0, c.tableNum-1)
 	case "sequential":
@@ -466,7 +466,7 @@ func (c *core) InitMixGraphBench() {
 		c.usePrefixModeling = true
 		c.genExp = generator.NewTwoTermExpKeys(c.recordCount/c.tableNum, c.keyRangeNum, keyRangeDistA, keyRangeDistB, keyRangeDistC, keyRangeDistD)
 	}
-	rangeNum := int64(3001)
+	rangeNum := int64(301)
 	c.keyRangeFreqs = make([]int, rangeNum)
 	c.keyRangeSumVSize = make([]int, rangeNum)
 	c.keyRangeSize = int(c.recordCount / (rangeNum - 1))
@@ -484,18 +484,24 @@ func (c *core) InitMixGraphBench() {
 	c.iterK = c.p.GetFloat64(prop.IterK, prop.IterKDefault)
 	c.iterSigma = c.p.GetFloat64(prop.IterSigma, prop.IterSigmaDefault)
 
-	c.avgValueSizes = make([]int64, c.tableNum)
-	for i := range c.avgValueSizes {
-		u := rand.Float64()
-		cv := ParetoCdfInversion(u, c.valueTheta, c.valueK, c.valueSigma)
-		if cv <= 0 {
-			cv = 10
-		} else if cv > c.fieldLength {
-			cv = cv % c.fieldLength
-		}
-		c.avgValueSizes[i] = cv
-		fmt.Printf("table %v: avg value size %v\n", i, cv)
+	c.avgValueSizes = []int64{}
+	iniSize := int64(32)
+	for i := 0; i < 8; i++ {
+		c.avgValueSizes = append(c.avgValueSizes, iniSize)
+		iniSize *= 2
 	}
+	// c.avgValueSizes = make([]int64, c.tableNum)
+	// for i := range c.avgValueSizes {
+	// 	u := rand.Float64()
+	// 	cv := ParetoCdfInversion(u, c.valueTheta, c.valueK, c.valueSigma)
+	// 	if cv <= 0 {
+	// 		cv = 10
+	// 	} else if cv > c.fieldLength {
+	// 		cv = cv % c.fieldLength
+	// 	}
+	// 	c.avgValueSizes[i] = cv
+	// 	fmt.Printf("table %v: avg value size %v\n", i, cv)
+	// }
 }
 
 func (c *core) MixGraphBench(ctx context.Context, db ycsb.DB) error {

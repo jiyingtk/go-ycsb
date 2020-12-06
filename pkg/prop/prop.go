@@ -116,7 +116,7 @@ const (
 	MixSeekRatio         = "mixseekratio"
 	MixSeekRatioDefault  = float64(0.03)
 	TableNum             = "tablenum"
-	TableNumDefault      = int64(10)
+	TableNumDefault      = int64(1)
 	KeyRangeNum          = "keyrangenum"
 	KeyRangeNumDefault   = int64(30)
 	KeyRangeDistA        = "keyrangedista"
