@@ -143,4 +143,5 @@ const (
 	IterKDefault         = float64(2.517)
 	IterSigma            = "itersigma"
 	IterSigmaDefault     = float64(14.236)
+	LogInterval = "measurement.interval"
 )
