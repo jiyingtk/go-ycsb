@@ -498,10 +498,10 @@ func (c *core) InitMixGraphBench() {
 
 	c.variedSize = c.p.GetBool("variedsize", false)
 	c.avgValueSizes = []int64{}
-	iniSize := int64(32)
-	for i := 0; i < 8; i++ {
+	iniSize := int64(16)
+	for i := 0; i < 4; i++ {
 		c.avgValueSizes = append(c.avgValueSizes, iniSize)
-		iniSize *= 2
+		iniSize *= 8
 	}
 	// c.avgValueSizes = make([]int64, c.tableNum)
 	// for i := range c.avgValueSizes {
