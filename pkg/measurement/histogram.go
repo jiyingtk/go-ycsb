@@ -36,6 +36,7 @@ type histogram struct {
 	max           int64
 	startTime     time.Time
 	lastHist	  *histogram
+	outputTick 	  int
 }
 
 // Metric name.
@@ -124,7 +125,10 @@ func (h *histogram) Measure(latency time.Duration) {
 func (h *histogram) Summary() string {
 	res := h.getInfo()
 
+	curTime := time.Now().Format("2006-01-02 15:04:05")
+
 	buf := new(bytes.Buffer)
+	buf.WriteString(fmt.Sprintf("At %s, ", curTime))
 	buf.WriteString(fmt.Sprintf("Takes(s): %.1f, ", res[ELAPSED]))
 	buf.WriteString(fmt.Sprintf("Count: %d, ", res[COUNT]))
 	buf.WriteString(fmt.Sprintf("OPS: %.1f, ", res[QPS]))
@@ -135,13 +139,16 @@ func (h *histogram) Summary() string {
 	buf.WriteString(fmt.Sprintf("99.9th(us): %d, ", res[PER999TH]))
 	buf.WriteString(fmt.Sprintf("99.99th(us): %d", res[PER9999TH]))
 
+	h.outputTick++
 	res = h.lastHist.getInfo()
-	h.lastHist.sum = 0
-	h.lastHist.count = 0
-	h.lastHist.min = math.MaxInt64
-	h.lastHist.max = math.MinInt64
-	h.lastHist.startTime = time.Now()
-	h.lastHist.boundCounts = util.New(h.shardCount)
+	if h.outputTick % 6 == 0 {
+		h.lastHist.sum = 0
+		h.lastHist.count = 0
+		h.lastHist.min = math.MaxInt64
+		h.lastHist.max = math.MinInt64
+		h.lastHist.startTime = time.Now()
+		h.lastHist.boundCounts = util.New(h.shardCount)
+	}
 
 	buf.WriteString(fmt.Sprintf("\n---Last %.1f(s) infos: ", res[ELAPSED]))
 	buf.WriteString(fmt.Sprintf("Count: %d, ", res[COUNT]))
