@@ -27,6 +27,7 @@ import (
 )
 
 type histogram struct {
+	shardCount    int
 	boundCounts   util.ConcurrentMap
 	boundInterval int64
 	count         int64
@@ -34,6 +35,8 @@ type histogram struct {
 	min           int64
 	max           int64
 	startTime     time.Time
+	lastHist	  *histogram
+	outputTick 	  int
 }
 
 // Metric name.
@@ -61,11 +64,19 @@ func (h *histogram) Info() ycsb.MeasurementInfo {
 
 func newHistogram(p *properties.Properties) *histogram {
 	h := new(histogram)
+	h.shardCount = p.GetInt(ShardCount, ShardCountDefault)
 	h.startTime = time.Now()
-	h.boundCounts = util.New(p.GetInt(ShardCount, ShardCountDefault))
+	h.boundCounts = util.New(h.shardCount)
 	h.boundInterval = p.GetInt64(HistogramBuckets, HistogramBucketsDefault)
 	h.min = math.MaxInt64
 	h.max = math.MinInt64
+
+	h.lastHist = new(histogram)
+	h.lastHist.startTime = time.Now()
+	h.lastHist.boundCounts = util.New(h.shardCount)
+	h.lastHist.boundInterval = p.GetInt64(HistogramBuckets, HistogramBucketsDefault)
+	h.lastHist.min = math.MaxInt64
+	h.lastHist.max = math.MinInt64
 	return h
 }
 
@@ -103,13 +114,41 @@ func (h *histogram) Measure(latency time.Duration) {
 			break
 		}
 	}
+
+	if h.lastHist != nil {
+		h.lastHist.Measure(latency)
+	}
 }
 
 func (h *histogram) Summary() string {
 	res := h.getInfo()
 
+	curTime := time.Now().Format("2006-01-02 15:04:05")
+
 	buf := new(bytes.Buffer)
+	buf.WriteString(fmt.Sprintf("At %s, ", curTime))
 	buf.WriteString(fmt.Sprintf("Takes(s): %.1f, ", res[ELAPSED]))
+	buf.WriteString(fmt.Sprintf("Count: %d, ", res[COUNT]))
+	buf.WriteString(fmt.Sprintf("OPS: %.1f, ", res[QPS]))
+	buf.WriteString(fmt.Sprintf("Avg(us): %d, ", res[AVG]))
+	buf.WriteString(fmt.Sprintf("Min(us): %d, ", res[MIN]))
+	buf.WriteString(fmt.Sprintf("Max(us): %d, ", res[MAX]))
+	buf.WriteString(fmt.Sprintf("99th(us): %d, ", res[PER99TH]))
+	buf.WriteString(fmt.Sprintf("99.9th(us): %d, ", res[PER999TH]))
+	buf.WriteString(fmt.Sprintf("99.99th(us): %d", res[PER9999TH]))
+
+	h.outputTick++
+	res = h.lastHist.getInfo()
+	if h.outputTick % 6 == 0 {
+		h.lastHist.sum = 0
+		h.lastHist.count = 0
+		h.lastHist.min = math.MaxInt64
+		h.lastHist.max = math.MinInt64
+		h.lastHist.startTime = time.Now()
+		h.lastHist.boundCounts = util.New(h.shardCount)
+	}
+
+	buf.WriteString(fmt.Sprintf("\n---Last %.1f(s) infos: ", res[ELAPSED]))
 	buf.WriteString(fmt.Sprintf("Count: %d, ", res[COUNT]))
 	buf.WriteString(fmt.Sprintf("OPS: %.1f, ", res[QPS]))
 	buf.WriteString(fmt.Sprintf("Avg(us): %d, ", res[AVG]))

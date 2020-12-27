@@ -95,9 +95,10 @@ func NewTwoTermExpKeys(totalKeys int64, keyRangeNum int64, prefixA float64, pref
 		ttek.keyRangeSet = append(ttek.keyRangeSet, pUnit)
 		keyRangeStart += pUnit.keyRangeAccess
 
-		fmt.Println("range ", pfx, ": ", pUnit.keyRangeAccess)
+		fmt.Println("key range ", pfx, " access weight : ", pUnit.keyRangeAccess)
 	}
 	ttek.keyRangeRandMax = keyRangeStart
+	fmt.Println("total access weight", keyRangeStart)
 
 	randLocal := rand.New(rand.NewSource(ttek.keyRangeRandMax))
 	for i := int64(0); i < keyRangeNum; i++ {
