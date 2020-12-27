@@ -95,7 +95,7 @@ func NewTwoTermExpKeys(totalKeys int64, keyRangeNum int64, prefixA float64, pref
 		ttek.keyRangeSet = append(ttek.keyRangeSet, pUnit)
 		keyRangeStart += pUnit.keyRangeAccess
 
-		fmt.Println("key range ", pfx, " access weight : ", pUnit.keyRangeAccess)
+		// fmt.Println("key range ", pfx, " access weight : ", pUnit.keyRangeAccess)
 	}
 	ttek.keyRangeRandMax = keyRangeStart
 	fmt.Println("total access weight", keyRangeStart)
@@ -125,7 +125,7 @@ func (t *TwoTermExpKeys) Next(r *rand.Rand) int64 {
 
 // DistGetKeyID implements DistGetKeyID.
 func (t *TwoTermExpKeys) DistGetKeyID(initRand int64, keyDistA float64, keyDistB float64) int64 {
-	keyRangeRand := initRand % t.keyRangeRandMax
+	keyRangeRand := util.Hash64(initRand) % t.keyRangeRandMax
 
 	start := 0
 	end := len(t.keyRangeSet)

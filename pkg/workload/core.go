@@ -468,15 +468,15 @@ func (c *core) InitMixGraphBench() {
 	c.variedSize = c.p.GetBool("variedsize", false)
 	c.avgValueSizes = []int64{}
 
-	r := rand.New(rand.NewSource(1))
+	r := rand.New(rand.NewSource(2))
 	avg := int64(0)
-	for i := int64(0); i < c.keyRangeNum; i++ {
+	for i := int64(0); i < c.keyRangeNum+1; i++ {
 		u := r.Float64()
 		cv := ParetoCdfInversion(u, c.valueTheta, c.valueK, c.valueSigma)
 		if cv <= 0 {
 			cv = 10
 		}
-		fmt.Println("range ", i, ": avg value: ", cv)
+		// fmt.Println("range ", i, ": avg value: ", cv)
 		avg += cv
 		c.avgValueSizes = append(c.avgValueSizes, cv)
 	}
@@ -529,7 +529,9 @@ func (c *core) MixGraphBench(ctx context.Context, db ycsb.DB) error {
 		}
 		return nil
 	} else if queryType == 1 {
-		state.curValueSize = ParetoCdfInversion(u, c.valueTheta, c.valueK, float64(c.avgValueSizes[curRange]))
+		// state.curValueSize = ParetoCdfInversion(u, c.valueTheta, c.valueK, float64(c.avgValueSizes[curRange]))
+		// state.curValueSize = ParetoCdfInversion(u, c.valueTheta, c.valueK, c.valueSigma)
+		state.curValueSize = int64(float64(c.avgValueSizes[curRange]) * (0.5*u+0.75))
 		if state.curValueSize <= 0 {
 			state.curValueSize = 10
 		} else if state.curValueSize > c.fieldLength {
