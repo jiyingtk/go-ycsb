@@ -454,9 +454,9 @@ func (c *core) InitMixGraphBench() {
 
 	c.keyDistA = c.p.GetFloat64(prop.KeyDistA, prop.KeyDistADefault)
 	c.keyDistB = c.p.GetFloat64(prop.KeyDistB, prop.KeyDistBDefault)
-	if c.keyDistA == 0 || c.keyDistB == 0 {
-		c.useDefaultRequest = true
-	}
+	// if c.keyDistA == 0 || c.keyDistB == 0 {
+	// 	c.useDefaultRequest = true
+	// }
 	fmt.Println("usePrefixModeling ", c.usePrefixModeling, ", useDefaultRequest ", c.useDefaultRequest)
 	c.valueTheta = c.p.GetFloat64(prop.ValueTheta, prop.ValueThetaDefault)
 	c.valueK = c.p.GetFloat64(prop.ValueK, prop.ValueKDefault)
@@ -499,7 +499,7 @@ func (c *core) MixGraphBench(ctx context.Context, db ycsb.DB) error {
 	if c.useDefaultRequest {
 		keyRand = c.nextKeyNum(state)
 	} else if c.usePrefixModeling {
-		keyRand = c.genExp.DistGetKeyID(initRand, c.keyDistA, c.keyDistB)
+		keyRand = c.genExp.DistGetKeyID(false, r, initRand, c.keyDistA, c.keyDistB)
 	} else {
 		keySeed = PowerCdfInversion(u, c.keyDistA, c.keyDistB)
 		keyRand = util.Hash64(keySeed) % c.recordCount

@@ -60,6 +60,7 @@ type TwoTermExpKeys struct {
 	keyRangeSize    int64
 	keyRangeNum     int64
 	keyRangeSet     []*keyRangeUnit
+	zipfGen         *ScrambledZipfian
 }
 
 // NewTwoTermExpKeys creates the NewTwoTermExpKeys generator.
@@ -98,6 +99,13 @@ func NewTwoTermExpKeys(totalKeys int64, keyRangeNum int64, prefixA float64, pref
 		// fmt.Println("key range ", pfx, " access weight : ", pUnit.keyRangeAccess)
 	}
 	ttek.keyRangeRandMax = keyRangeStart
+
+	for i := int64(0); i < keyRangeNum; i++ {
+		pr := float64(ttek.keyRangeSet[i].keyRangeAccess) / float64(ttek.keyRangeRandMax)
+		if pr > 0.01 {
+			fmt.Printf("Key range access probability %v\n", pr)
+		}
+	}
 	fmt.Println("total access weight", keyRangeStart)
 
 	randLocal := rand.New(rand.NewSource(ttek.keyRangeRandMax))
@@ -124,7 +132,7 @@ func (t *TwoTermExpKeys) Next(r *rand.Rand) int64 {
 }
 
 // DistGetKeyID implements DistGetKeyID.
-func (t *TwoTermExpKeys) DistGetKeyID(initRand int64, keyDistA float64, keyDistB float64) int64 {
+func (t *TwoTermExpKeys) DistGetKeyID(useZipf bool, r *rand.Rand, initRand int64, keyDistA float64, keyDistB float64) int64 {
 	keyRangeRand := util.Hash64(initRand) % t.keyRangeRandMax
 
 	start := 0
@@ -138,6 +146,10 @@ func (t *TwoTermExpKeys) DistGetKeyID(initRand int64, keyDistA float64, keyDistB
 		}
 	}
 	keyRangeID := start
+
+	if useZipf {
+		keyRangeID = int(t.zipfGen.Next(r))
+	}
 
 	var keyOffset, keySeed int64
 	if keyDistA == 0.0 || keyDistB == 0.0 {
