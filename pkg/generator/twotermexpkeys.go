@@ -61,10 +61,12 @@ type TwoTermExpKeys struct {
 	keyRangeNum     int64
 	keyRangeSet     []*keyRangeUnit
 	zipfGen         *ScrambledZipfian
+	bottomIndex     int64
+	randLocal       *rand.Rand
 }
 
 // NewTwoTermExpKeys creates the NewTwoTermExpKeys generator.
-func NewTwoTermExpKeys(totalKeys int64, keyRangeNum int64, prefixA float64, prefixB float64, prefixC float64, prefixD float64) *TwoTermExpKeys {
+func NewTwoTermExpKeys(zipfianRange bool, totalKeys int64, keyRangeNum int64, prefixA float64, prefixB float64, prefixC float64, prefixD float64) *TwoTermExpKeys {
 	ttek := &TwoTermExpKeys{}
 
 	var amplify int64
@@ -78,6 +80,10 @@ func NewTwoTermExpKeys(totalKeys int64, keyRangeNum int64, prefixA float64, pref
 
 	for pfx := ttek.keyRangeNum; pfx >= 1; pfx-- {
 		keyRangeP := prefixA*math.Exp(prefixB*float64(pfx)) + prefixC*math.Exp(prefixD*float64(pfx))
+		if zipfianRange {
+			keyRangeP = 1.0 / math.Pow(float64(pfx), 0.99)
+		}
+
 		if keyRangeP < math.Pow10(-16) {
 			keyRangeP = float64(0)
 		}
@@ -100,22 +106,28 @@ func NewTwoTermExpKeys(totalKeys int64, keyRangeNum int64, prefixA float64, pref
 	}
 	ttek.keyRangeRandMax = keyRangeStart
 
-	for i := int64(0); i < keyRangeNum; i++ {
-		pr := float64(ttek.keyRangeSet[i].keyRangeAccess) / float64(ttek.keyRangeRandMax)
-		if pr > 0.01 {
-			fmt.Printf("Key range access probability %v\n", pr)
+	bottomIndex := int64(0)
+	for ; bottomIndex < ttek.keyRangeNum; bottomIndex++ {
+		pr := float64(ttek.keyRangeSet[bottomIndex].keyRangeAccess) / float64(ttek.keyRangeRandMax)
+		if pr >= 0.01 {
+			break
 		}
 	}
-	fmt.Println("total access weight", keyRangeStart)
 
-	randLocal := rand.New(rand.NewSource(ttek.keyRangeRandMax))
+	ttek.randLocal = rand.New(rand.NewSource(ttek.keyRangeRandMax))
 	for i := int64(0); i < keyRangeNum; i++ {
-		pos := randLocal.Int63n(keyRangeNum)
+		pos := ttek.randLocal.Int63n(keyRangeNum)
+
+		if i >= bottomIndex || pos >= bottomIndex {
+			continue
+		}
 
 		tmp := ttek.keyRangeSet[i]
 		ttek.keyRangeSet[i] = ttek.keyRangeSet[pos]
 		ttek.keyRangeSet[pos] = tmp
 	}
+
+	ttek.bottomIndex = bottomIndex
 
 	offset := int64(0)
 	for _, pUnit := range ttek.keyRangeSet {
@@ -129,6 +141,51 @@ func NewTwoTermExpKeys(totalKeys int64, keyRangeNum int64, prefixA float64, pref
 // Next implements the Generator Next interface.
 func (t *TwoTermExpKeys) Next(r *rand.Rand) int64 {
 	return 0
+}
+
+// Adjust adjusts key range
+func (t *TwoTermExpKeys) Adjust(smallValPos, bigValPos []int64) {
+	halfNum := (t.keyRangeNum - t.bottomIndex) / 2
+	j := 0
+	for i := t.bottomIndex; i < t.bottomIndex+halfNum; i++ {
+		pos := bigValPos[j]
+		j++
+		if j >= len(bigValPos) {
+			break
+		}
+		tmp := t.keyRangeSet[i]
+		t.keyRangeSet[i] = t.keyRangeSet[pos]
+		t.keyRangeSet[pos] = tmp
+	}
+
+	j = 0
+	for i := t.bottomIndex + halfNum; i < t.keyRangeNum; i++ {
+		pos := smallValPos[j]
+		j++
+		if j >= len(smallValPos) {
+			break
+		}
+		tmp := t.keyRangeSet[i]
+		t.keyRangeSet[i] = t.keyRangeSet[pos]
+		t.keyRangeSet[pos] = tmp
+	}
+
+	offset := int64(0)
+	for _, pUnit := range t.keyRangeSet {
+		pUnit.keyRangeStart = offset
+		offset += pUnit.keyRangeAccess
+	}
+}
+
+// PrintKeyRangeInfo prints key range info.
+func (t *TwoTermExpKeys) PrintKeyRangeInfo(valSizes []int64) {
+	fmt.Println("KeyRangeDist: total access weight", t.keyRangeRandMax)
+	for i := int64(0); i < t.keyRangeNum; i++ {
+		pr := float64(t.keyRangeSet[i].keyRangeAccess) / float64(t.keyRangeRandMax)
+		if pr > 0.005 {
+			fmt.Printf("KeyRangeDist: range %v, start_key %v, access probability %v, value size %v\n", i, t.keyRangeSize*i, pr, valSizes[i])
+		}
+	}
 }
 
 // DistGetKeyID implements DistGetKeyID.

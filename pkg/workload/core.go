@@ -445,7 +445,7 @@ func (c *core) InitMixGraphBench() {
 	keyRangeDistD := c.p.GetFloat64(prop.KeyRangeDistD, prop.KeyRangeDistDDefault)
 	if keyRangeDistA != 0.0 || keyRangeDistB != 0.0 || keyRangeDistC != 0.0 || keyRangeDistD != 0.0 {
 		c.usePrefixModeling = true
-		c.genExp = generator.NewTwoTermExpKeys(c.recordCount, c.keyRangeNum, keyRangeDistA, keyRangeDistB, keyRangeDistC, keyRangeDistD)
+		c.genExp = generator.NewTwoTermExpKeys(c.p.GetBool("zipfianrange", false), c.recordCount, c.keyRangeNum, keyRangeDistA, keyRangeDistB, keyRangeDistC, keyRangeDistD)
 	}
 	rangeNum := c.keyRangeNum + 1
 	c.keyRangeFreqs = make([]int64, rangeNum)
@@ -470,13 +470,22 @@ func (c *core) InitMixGraphBench() {
 
 	r := rand.New(rand.NewSource(2))
 	avg := int64(0)
+	smallValPos := []int64{}
+	bigValPos := []int64{}
 	for i := int64(0); i < c.keyRangeNum+1; i++ {
 		u := r.Float64()
 		cv := ParetoCdfInversion(u, c.valueTheta, c.valueK, c.valueSigma)
 		if cv <= 0 {
 			cv = 10
 		}
-		// fmt.Println("range ", i, ": avg value: ", cv)
+
+		if cv >= 10 && cv <= 100 {
+			smallValPos = append(smallValPos, i)
+		}
+		if cv >= 1024*3 && cv <= 10240 {
+			bigValPos = append(bigValPos, i)
+		}
+
 		avg += cv
 		c.avgValueSizes = append(c.avgValueSizes, cv)
 	}
@@ -484,6 +493,9 @@ func (c *core) InitMixGraphBench() {
 
 	exp := c.valueSigma / (1.0 - c.valueK)
 	fmt.Printf("avg avg %v, exp %v\n", avg, exp)
+
+	c.genExp.Adjust(smallValPos, bigValPos)
+	c.genExp.PrintKeyRangeInfo(c.avgValueSizes)
 }
 
 func (c *core) MixGraphBench(ctx context.Context, db ycsb.DB) error {
@@ -531,7 +543,7 @@ func (c *core) MixGraphBench(ctx context.Context, db ycsb.DB) error {
 	} else if queryType == 1 {
 		// state.curValueSize = ParetoCdfInversion(u, c.valueTheta, c.valueK, float64(c.avgValueSizes[curRange]))
 		// state.curValueSize = ParetoCdfInversion(u, c.valueTheta, c.valueK, c.valueSigma)
-		state.curValueSize = int64(float64(c.avgValueSizes[curRange]) * (0.5*u+0.75))
+		state.curValueSize = int64(float64(c.avgValueSizes[curRange]) * (0.5*u + 0.75))
 		if state.curValueSize <= 0 {
 			state.curValueSize = 10
 		} else if state.curValueSize > c.fieldLength {

@@ -37,6 +37,8 @@ import (
 	"github.com/pingcap/go-ycsb/pkg/ycsb"
 	"github.com/spf13/cobra"
 
+	log "github.com/sirupsen/logrus"
+
 	// Register basic database
 	_ "github.com/pingcap/go-ycsb/db/basic"
 	// Register MySQL database
@@ -84,6 +86,8 @@ var (
 )
 
 func initialGlobal(dbName string, onProperties func()) {
+	log.SetLevel(log.WarnLevel)
+
 	globalProps = properties.NewProperties()
 	if len(propertyFiles) > 0 {
 		globalProps = properties.MustLoadFiles(propertyFiles, properties.UTF8, false)
